@@ -95,7 +95,8 @@ process_gogo_category() {
 process_gogo_video() {
 # $1	gogo page
 
-    local LINKS=( )
+    #local 
+    LINKS=( )
     local TMP=$(mktemp)
     local line
 
@@ -104,9 +105,10 @@ process_gogo_video() {
 
     # find every source for iframe and fill LINKS variable
     while read line; do
-	LINKS[${#LINKS}]="$line"
+	LINKS[${#LINKS[@]}]="$line"
     done < <(
-	echo "cat //iframe/@src" | xmllint --shell --html "$TMP" 2>/dev/null | \
+	echo "cat //iframe/@src" |
+	xmllint --shell --html "$TMP" 2>/dev/null | \
 	# process src attributes, ignore facebook
 	sed -n '/facebook/d;s/^ src="\([^"]\+\)"/\1/p'
     )
@@ -118,6 +120,9 @@ process_gogo_video() {
     # TODO: this respects order on the page, but not video source preference, fix it
     for LINK in "${LINKS[@]}"; do
 	    if [[ $LINK =~ video44\.net ]] && video44 "$LINK" "$1"; then
+		# we have video from the PAGE, we can continue with other
+		break;
+	    elif [[ $LINK =~ http://yourupload\.com/embed ]] && yourupload "$LINK" "$1"; then
 		# we have video from the PAGE, we can continue with other
 		break;
 	    fi
@@ -156,6 +161,37 @@ video44() {
 	return 1
     fi
 }
+
+yourupload() {
+# $1	URL
+# $2	refrer
+
+    local URL="$(sed 's/&amp;/\&/g' <<< "$1")"
+    local TMP=$(mktemp)
+
+    wgt "$URL" "$TMP" "$2"
+
+    local NEW_URL="$(
+        echo 'cat //embed/@flashvars' |
+	xmllint --html --shell "$TMP" 2>/dev/null |
+	sed -n 's@.*&amp;file=\(.*\.flv\)%3F.*@\1@p' |
+	perl  -pe "s/\%([A-Fa-f0-9]{2})/pack('C', hex(\$1))/seg;"
+	)"
+
+    # clean the mess
+    rm "$TMP"
+
+    # if we got reasonable output, we have URL to download
+    if [ "$NEW_URL" ]; then
+	echo "Got URL: $NEW_URL"
+	URLS[${#URLS[@]}]="$NEW_URL"
+	return 0
+    else
+	echo "Error processing '$URL'"
+	return 1
+    fi
+}
+
 
 process_gogo_queue() {
     # gather links from all the queue
