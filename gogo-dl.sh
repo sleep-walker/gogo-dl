@@ -6,8 +6,7 @@
 #
 #
 # TODO:
-#   - support more video sources than video44
-#   - add category parsing
+#   - support more video sources than video44 and yourupload
 
 USER_AGENT='Mozilla/5.0 (X11; Linux x86_64; rv:16.0) Gecko/20100101 Firefox/16.0'
 RATE="300k"
@@ -57,9 +56,8 @@ process_gogo_category_page() {
 }
 
 process_gogo_category() {
-    # cat //tr/td/a/@href - links
-    # cat //div[@class='wp-pagenavi']/a/@href - pages
-    # TODO: not implemented yet
+# $1	gogo category page
+
     if [[ $1 =~ http://www.gogoanime.com/category/[^/]+/page/[0-9]+ ]]; then
 	# download some exact category page
 	process_gogo_category_page "$1"
