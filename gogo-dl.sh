@@ -8,8 +8,42 @@
 # TODO:
 #   - support more video sources than video44 and yourupload
 
+# user agent (browser identification) sent to servers
 USER_AGENT='Mozilla/5.0 (X11; Linux x86_64; rv:16.0) Gecko/20100101 Firefox/16.0'
+
+# limit transfer rate
 RATE="300k"
+
+# which video provider is prefered, lower index means better
+# name must correspond to function names is_iframe_* (e.g. is_iframe_video44)
+# these function should work for both single URL and multiple URLs separated by spaces
+PROVIDERS_PRIORITY=( video44 yourupload )
+
+
+GREEN="\033[01;32m"
+RED="\033[01;31m"
+NONE="\033[00m"
+
+inform() {
+    local FIRST="$1"
+    shift
+    echo -e "${GREEN}$FIRST${NONE}" "$@"
+}
+
+error() {
+    local FIRST="$1"
+    shift
+    echo -e "${RED}$FIRST${NONE}" "$@"
+}
+
+dependency_check() {
+    for prog in xmllint wget sed grep; do
+	if ! which "$prog" &> /dev/null; then
+	    error "This script needs $prog installed."
+	    exit 1
+	fi
+    done
+}
 
 wgt() {
 # $1	URL
@@ -51,6 +85,7 @@ process_gogo_category_page() {
     rm "$TMP"
 
     for VIDEO in "${VIDEOS[@]}"; do
+	inform "Processing $VIDEO"
 	process_gogo_video "$VIDEO"
     done
 }
@@ -84,10 +119,65 @@ process_gogo_category() {
 
 	# process every page
 	for PAGE in "${PAGES[@]}"; do
+	    inform "Processing category page $PAGE"
 	    process_gogo_category_page "$PAGE"
 	done
+
+	# clean the mess
+	rm "$TMP"
     fi
-    rm "$TMP"
+}
+
+provider_pick() {
+# $1	provider to pick videos
+#
+# is REGEXP_REMATCH option here instead of another for cycle?
+# it would have bigger requirements for regexp match
+    local LINK
+    for LINK in "${LINKS[@]}"; do
+	if "is_iframe_$PROVIDER" "$LINK"; then
+	    PROVIDER_URLS[${#PROVIDER_URLS[@]}]="$LINK"
+	fi
+    done
+}
+
+process_iframe_links() {
+# $1	gogo page as referer
+#
+# We need to sort iframe links according to priority.
+# 1] some video providers are prefered over others due to quality
+# 2] there may be multiple iframes of the same video provider meaning
+#    that video is multipart
+
+    local PROVIDER_URLS
+    local PROVIDER_FAILED
+
+    # try providers in order defined by priority
+    for PROVIDER in "${PROVIDERS_PRIORITY[@]}"; do
+	PROVIDER_URLS=( )
+
+	# is this provider even present?
+	if "is_iframe_$PROVIDER" "${LINKS[*]}"; then
+	    # yes, so lets pick URLs of this provider only
+	    # it fills PROVIDER_URLS array
+	    provider_pick "$PROVIDER"
+
+	    # go throught picked provider URLs and get direct video URLs
+	    PROVIDER_FAILED=""
+	    for PROVIDER_URL in "${PROVIDER_URLS[@]}"; do
+		if ! "process_$PROVIDER" "$PROVIDER_URL" "$1"; then
+		    # obtaining video URL failed
+		    PROVIDER_FAILED=yes
+		    break
+		fi
+	    done
+
+	    # if we got direct video URLs, we can stop looking for others
+	    if [ -z "$PROVIDER_FAILED" ]; then
+		break
+	    fi
+	fi
+    done
 }
 
 process_gogo_video() {
@@ -116,19 +206,16 @@ process_gogo_video() {
 
     # now go through iframe links and try to get direct link for download
     # TODO: this respects order on the page, but not video source preference, fix it
-    for LINK in "${LINKS[@]}"; do
-	    if [[ $LINK =~ video44\.net ]] && video44 "$LINK" "$1"; then
-		# we have video from the PAGE, we can continue with other
-		break;
-	    elif [[ $LINK =~ http://yourupload\.com/embed ]] && yourupload "$LINK" "$1"; then
-		# we have video from the PAGE, we can continue with other
-		break;
-	    fi
-    done
-    
+    # FIXME: if there are multiple parts of the same video provider, I should get them all
+
+    process_iframe_links "$1"
 }
 
-video44() {
+is_iframe_video44() {
+    [[ $1 =~ video44\.net ]]
+}
+
+process_video44() {
 # $1	URL
 # $2	referer
 
@@ -151,16 +238,20 @@ video44() {
 
     # if we got reasonable output, we have URL to download
     if [ "$NEW_URL" ]; then
-	echo "Got URL: $NEW_URL"
+	inform "Got URL: $NEW_URL"
 	URLS[${#URLS[@]}]="$NEW_URL"
 	return 0
     else
-	echo "Error processing '$URL'"
+	error "Error processing '$URL'"
 	return 1
     fi
 }
 
-yourupload() {
+is_iframe_yourupload() {
+    [[ $LINK =~ http://yourupload\.com/embed ]]
+}
+
+process_yourupload() {
 # $1	URL
 # $2	refrer
 
@@ -181,11 +272,11 @@ yourupload() {
 
     # if we got reasonable output, we have URL to download
     if [ "$NEW_URL" ]; then
-	echo "Got URL: $NEW_URL"
+	inform "Got URL: $NEW_URL"
 	URLS[${#URLS[@]}]="$NEW_URL"
 	return 0
     else
-	echo "Error processing '$URL'"
+	error "Error processing '$URL'"
 	return 1
     fi
 }
@@ -198,11 +289,23 @@ process_gogo_queue() {
     done
 
     if [ "$URLS" ]; then
-    # now download all the videos
-	wget ${RATE:+--limit-rate="$RATE"} "${URLS[@]}"
+	# we have some URLs, good
+        # but we have them in reverse order
+	local VIDEO_URLS=( )
+	for i in $(seq $((${#URLS[@]} - 1)) -1 0); do
+	    VIDEO_URLS[${#VIDEO_URLS[@]}]="${URLS[i]}"
+	done
+
+        # now download all the videos
+	inform "Gathered links to videos:"
+	for i in "${VIDEO_URLS[@]}"; do
+	    echo "$i"
+	done
+	wget ${RATE:+--limit-rate="$RATE"} "${VIDEO_URLS[@]}"
     fi
 }
 
 
 #getopt
+dependency_check
 process_gogo_queue "$@"
