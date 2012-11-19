@@ -108,11 +108,13 @@ process_gogo_category() {
 	local PAGES=( "${1%/}/page/1" )
 
 	# extract page URLs
+	# FIXME: this is not correct, I'm taking just 5 pages max.
+	# TODO: redesign to take just last page number and generate URLs between
 	while read line; do
 	    PAGES[${#PAGES[@]}]="$line"
 	done < <(
 	    echo "cat //div[@class='wp-pagenavi']/a/@href" |
-	    xmllint --html --shell 1 2>/dev/null |
+	    xmllint --html --shell "$1" 2>/dev/null |
 	    sed -n 's/^ href="\([^"]\+\)"/\1/p' |
 	    sort -u
 	)
