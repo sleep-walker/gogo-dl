@@ -2,6 +2,13 @@
 
 Simple downloader script for GoGoAnime.com.
 
+Support for video frames was implemented to 
+
+http://code.google.com/p/get-flash-videos/
+
+Use this cool software as gogo-dl will transform to gogoanime.com browser and
+let downloading to this script in future...
+
 ## Features ##
 
  * downloads multiple episodes or even series and animes
